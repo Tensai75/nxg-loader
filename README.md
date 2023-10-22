@@ -4,7 +4,7 @@
 # NxG Loader
 Proof of Concept for a new way of binary download from Usenet using the NxG Header, eliminating the need for Usenet search engines and NZB files.
 
-The NxG Loader only works with NxG Headers created by an NxG Header compatible Usenet upload tool, e.g. the NxG Upper.
+The NxG Loader only works with NxG Headers created by an NxG Header compatible Usenet upload tool, e.g. the [NxG Upper](https://github.com/Tensai75/nxg-upper/).
 
 NxG Loader also accepts the new NXGLNK URI scheme and can register itself as a target for NXGLNKs.
 
