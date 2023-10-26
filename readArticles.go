@@ -1,14 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/Tensai75/nntp"
+	"github.com/chrisfarms/yenc"
 )
 
 func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
@@ -49,12 +48,13 @@ func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
 		}
 
 		var (
-			article   *nntp.Article
-			bodyBytes []byte
+			article *nntp.Article
+			part    *yenc.Part
 		)
 
 		partsCounter.inc()
 
+		// read Article
 		if article, err = read(conn, message.id); err != nil {
 			Log.Debug("%v", message.id, err)
 			message.retries++
@@ -72,14 +72,15 @@ func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
 			continue
 		}
 
-		if bodyBytes, err = io.ReadAll(article.Body); err != nil {
-			Log.Error("Unable to read body of message id <%v>: %v", message.id, err)
+		// decode article body
+		if part, err = yenc.Decode(article.Body); err != nil {
+			Log.Warn("Unable to decode body of message id <%v>: %v", message.id, err)
 			missingParts.add(message.id)
 			continue
+		} else {
+			fileWriters.runOnce(part.Name)
+			fileChannels.channels[part.Name] <- part
 		}
-		article.Body = bytes.NewReader(bodyBytes)
-
-		articlesChan <- *article
 
 	}
 }

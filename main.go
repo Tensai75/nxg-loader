@@ -72,7 +72,6 @@ var (
 	// wait groups
 	fileWriterWG   sync.WaitGroup
 	readArticlesWG sync.WaitGroup
-	yEncDecodeWG   sync.WaitGroup
 
 	// counters
 	failedConnections Counter
@@ -220,8 +219,6 @@ func loadArticles(maxParts int, partType string) {
 	for i := 1; i <= conf.Connections; i++ {
 		readArticlesWG.Add(1)
 		go readArticles(&readArticlesWG, i, 0)
-		yEncDecodeWG.Add(1)
-		go yEncEncoder(&yEncDecodeWG)
 	}
 
 	for j := 1; j <= maxParts; j++ {
@@ -233,7 +230,6 @@ func loadArticles(maxParts int, partType string) {
 	close(messagesChan)
 	readArticlesWG.Wait()
 	close(articlesChan)
-	yEncDecodeWG.Wait()
 	for _, channel := range fileChannels.channels {
 		close(channel)
 	}
