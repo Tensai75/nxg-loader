@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"runtime/debug"
 	"sync"
 	"time"
 
-	"github.com/Tensai75/nntp"
 	"github.com/chrisfarms/yenc"
 )
 
@@ -48,14 +48,14 @@ func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
 		}
 
 		var (
-			article *nntp.Article
-			part    *yenc.Part
+			body io.Reader
+			part *yenc.Part
 		)
 
 		partsCounter.inc()
 
 		// read Article
-		if article, err = read(conn, message.id); err != nil {
+		if body, err = read(conn, message.id); err != nil {
 			Log.Debug("%v", message.id, err)
 			message.retries++
 			if message.retries <= conf.Retries {
@@ -73,7 +73,7 @@ func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
 		}
 
 		// decode article body
-		if part, err = yenc.Decode(article.Body); err != nil {
+		if part, err = yenc.Decode(body); err != nil {
 			Log.Warn("Unable to decode body of message id <%v>: %v", message.id, err)
 			missingParts.add(message.id)
 			continue
