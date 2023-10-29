@@ -51,6 +51,13 @@ This is a Proof of Concept with the minimum necessary features.
 So there is certainly a lot left to do.
 
 ## Version history
+### beta 2
+- some heavy refactoring
+- only read body instead of whole article
+- change of the progress bar to bytes instead of articles and display of the download rate
+- bug fix for re-adding failed articles blocking the queue
+- update dependencies
+
 ### beta 1
 - first public version
 
