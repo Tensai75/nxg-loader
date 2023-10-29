@@ -141,13 +141,6 @@ func main() {
 
 }
 
-func checkForFatalErr(err error) {
-	if err != nil {
-		Log.Error(err.Error())
-		exit(1)
-	}
-}
-
 func loadArticles(partType string) {
 
 	Log.Info("Loading %v files", partType)
