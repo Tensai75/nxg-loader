@@ -45,6 +45,25 @@ func unrar() error {
 		255: "User break",
 	}
 
+	// check for rar files
+	hasRarFiles := false
+	exp, _ := regexp.Compile(`^.+\.rar`)
+	if err = filepath.Walk(conf.TempPath, func(file string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && exp.MatchString(filepath.Base(info.Name())) {
+			hasRarFiles = true
+		}
+		return nil
+	}); err != nil {
+		checkForFatalErr(err)
+	}
+	if !hasRarFiles {
+		Log.Info("No rar files found. Skipping unrar.")
+		return nil
+	}
+
 	// set parameters
 	parameters = append(parameters, "x", "-o+")
 	if conf.Password != "" {
