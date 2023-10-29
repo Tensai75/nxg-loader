@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -140,18 +139,5 @@ func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
 			fileChannels.channels[part.Name] <- part
 		}
 
-	}
-}
-
-func TryCatch(f func()) func() error {
-	return func() (err error) {
-		defer func() {
-			if panicInfo := recover(); panicInfo != nil {
-				err = fmt.Errorf("%v, %s", panicInfo, string(debug.Stack()))
-				return
-			}
-		}()
-		f() // calling the decorated function
-		return err
 	}
 }

@@ -1,9 +1,7 @@
 package main
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"math"
@@ -143,12 +141,6 @@ func main() {
 
 }
 
-func GetSHA256Hash(text string) string {
-	hasher := sha256.New()
-	hasher.Write([]byte(text))
-	return hex.EncodeToString(hasher.Sum(nil))
-}
-
 func checkForFatalErr(err error) {
 	if err != nil {
 		Log.Error(err.Error())
@@ -262,5 +254,3 @@ func exit(exitCode int) {
 
 	os.Exit(exitCode)
 }
-
-func newline() { fmt.Println() }
