@@ -5,10 +5,64 @@ import (
 	"io"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chrisfarms/yenc"
 )
+
+type Article struct {
+	id       string
+	retries  int
+	partType string
+}
+
+type MissingArticles struct {
+	mu    sync.Mutex
+	parts []string
+}
+
+func (m *MissingArticles) add(messageId string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.parts = append(m.parts, messageId)
+}
+
+func (m *MissingArticles) len() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.parts)
+}
+
+var (
+	articleCounter  atomic.Int64
+	missingArticles MissingArticles
+
+	// channels
+	articlesChan       = make(chan Article, 0)
+	failedArticlesChan = make(chan Article, 0)
+)
+
+func init() {
+	go failedArticlesHandler()
+}
+
+func failedArticlesHandler() {
+	for {
+		article, ok := <-failedArticlesChan
+		if !ok {
+			return
+		}
+		go func(article Article) {
+			if err := TryCatch(func() { articlesChan <- article })(); err != nil {
+				Log.Debug("Error while trying to add article with message id <%v> back to the queue: %v", article.id, err)
+				missingArticles.add(article.id)
+			} else {
+				Log.Debug("Added article with message id <%v> back to the queue", article.id)
+			}
+		}(article)
+	}
+}
 
 func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
 
@@ -26,7 +80,7 @@ func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
 		retries++
 		if retries > conf.ConnRetries {
 			Log.Error("Connection %d failed after %d retries: %v", connNumber, retries-1, err)
-			failed := failedConnections.inc()
+			failed := failedConnections.Add(1)
 			if failed >= int64(conf.Connections) {
 				checkForFatalErr(fmt.Errorf("All connections failed"))
 			}
@@ -42,7 +96,7 @@ func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
 
 	for {
 
-		message, ok := <-messagesChan
+		article, ok := <-articlesChan
 		if !ok {
 			return
 		}
@@ -52,32 +106,36 @@ func readArticles(wg *sync.WaitGroup, connNumber int, retries int) {
 			part *yenc.Part
 		)
 
-		partsCounter.inc()
+		articleCounter.Add(1)
 
 		// read Article
-		if body, err = read(conn, message.id); err != nil {
-			Log.Debug("%v", message.id, err)
-			message.retries++
-			if message.retries <= conf.Retries {
-				if err := TryCatch(func() { messagesChan <- message })(); err != nil {
-					Log.Debug("Error while trying to add message id <%v> back to the queue: %v", message.id, err)
-					missingParts.add(message.id)
-				} else {
-					Log.Debug("Added message id <%v> back to reading queue", message.id)
-				}
+		if body, err = read(conn, article.id); err != nil {
+			Log.Debug("Error loading article with message id <%v>: %v", article.id, err)
+			article.retries++
+			if article.retries <= conf.Retries {
+				failedArticlesChan <- article
 			} else {
-				Log.Warn("After %d retries unable to read message id <%v>: %v", message.retries-1, message.id, err)
-				missingParts.add(message.id)
+				Log.Warn("After %d retries unable to load article with message id <%v>: %v", article.retries-1, article.id, err)
+				missingArticles.add(article.id)
+				downloadProgressBar.Add(1)
+				if missingArticles.len() > totalParts["par2"] {
+					checkForFatalErr(fmt.Errorf("Number of missing articles too high!"))
+				}
 			}
 			continue
 		}
-
 		// decode article body
 		if part, err = yenc.Decode(body); err != nil {
-			Log.Warn("Unable to decode body of message id <%v>: %v", message.id, err)
-			missingParts.add(message.id)
+			Log.Warn("Unable to decode body of the article with message id <%v>: %v", article.id, err)
+			missingArticles.add(article.id)
 			continue
 		} else {
+			totalBytesLoaded := totalBytesLoaded.Add(part.Size)
+			totalPartsLoaded := totalPartsLoaded.Add(1)
+			// estimate the total size to be downloaded based on the size of the first 10 articles and the total article count
+			if downloadProgressBar != nil && totalPartsLoaded <= 10 {
+				downloadProgressBar.ChangeMax64((totalBytesLoaded / totalPartsLoaded) * int64(totalParts[article.partType]))
+			}
 			fileWriters.runOnce(part.Name)
 			fileChannels.channels[part.Name] <- part
 		}

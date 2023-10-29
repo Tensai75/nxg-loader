@@ -7,15 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync/atomic"
 )
 
 var (
-	testReadCounter Counter
+	testReadCounter atomic.Int64
 )
 
 func (c *safeConn) testBody(messageId string) (io.Reader, error) {
 	// for reading error testing
-	counter := testReadCounter.inc()
+	counter := testReadCounter.Add(1)
 	if counter%150 == 0 {
 		// return nil, fmt.Errorf("Test Error")
 	}

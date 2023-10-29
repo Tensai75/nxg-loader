@@ -103,6 +103,9 @@ func par2() error {
 	}
 	if err = cmd.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
+			if parProgressBar != nil {
+				parProgressBar.Exit()
+			}
 			if errMsg, ok := par2ExitCodes[exitError.ExitCode()]; ok {
 				return fmt.Errorf(errMsg)
 			} else {
@@ -110,7 +113,7 @@ func par2() error {
 			}
 		}
 	}
-	if conf.Verbose > 0 {
+	if parProgressBar != nil {
 		parProgressBar.Finish()
 	}
 	Log.Info("Repair successful")

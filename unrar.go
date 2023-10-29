@@ -93,6 +93,9 @@ func unrar() error {
 	}
 	if err = cmd.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() > 1 {
+			if rarProgressBar != nil {
+				rarProgressBar.Exit()
+			}
 			if errMsg, ok := rarExitCodes[exitError.ExitCode()]; ok {
 				return fmt.Errorf(errMsg)
 			} else {
@@ -100,7 +103,7 @@ func unrar() error {
 			}
 		}
 	}
-	if conf.Verbose > 0 {
+	if rarProgressBar != nil {
 		rarProgressBar.Finish()
 	}
 	Log.Info("Unrar successful")

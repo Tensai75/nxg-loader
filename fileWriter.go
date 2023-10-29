@@ -33,6 +33,7 @@ func (fileWriter *FileWriters) runOnce(name string) {
 var (
 	fileChannels FileChannels
 	fileWriters  FileWriters
+	writtenBytes int
 )
 
 func writeFile(parts <-chan *yenc.Part, name string, wg *sync.WaitGroup) {
@@ -58,11 +59,11 @@ func writeFile(parts <-chan *yenc.Part, name string, wg *sync.WaitGroup) {
 		if !ok {
 			return
 		}
-		if _, err = destFile.WriteAt(part.Body, part.Begin-1); err != nil {
+		if writtenBytes, err = destFile.WriteAt(part.Body, part.Begin-1); err != nil {
 			Log.Warn("Unable to write bytes %v to %v to destination file \"%v\": %v", part.Begin-1, part.Begin-1+int64(len(part.Body)), part.Name, err)
 		}
 		if conf.Verbose > 0 {
-			downloadProgressBar.Add(1)
+			downloadProgressBar.Add(writtenBytes)
 		}
 	}
 

@@ -6,46 +6,19 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/Tensai75/nntp"
 	"github.com/chrisfarms/yenc"
 	"github.com/schollz/progressbar/v3"
 )
-
-type Messages struct {
-	id      string
-	retries int
-}
-
-type Counter struct {
-	mu      sync.Mutex
-	counter int64
-}
-
-func (c *Counter) inc() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.counter++
-	return c.counter
-}
-
-type MissingParts struct {
-	mu    sync.Mutex
-	parts []string
-}
-
-func (m *MissingParts) add(messageId string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.parts = append(m.parts, messageId)
-}
 
 // global variables
 var (
@@ -57,24 +30,19 @@ var (
 	appExec             string
 	appPath             string
 	homePath            string
-	partsCounter        Counter
-	missingParts        MissingParts
 	decodedHeader       []byte
-	maxDataParts        int
-	maxPar2Parts        int
+	totalParts          = make(map[string]int, 2)
 	downloadProgressBar *progressbar.ProgressBar
 	err                 error
-
-	// channels
-	messagesChan chan Messages
-	articlesChan chan nntp.Article
 
 	// wait groups
 	fileWriterWG   sync.WaitGroup
 	readArticlesWG sync.WaitGroup
 
 	// counters
-	failedConnections Counter
+	failedConnections atomic.Int64
+	totalBytesLoaded  atomic.Int64
+	totalPartsLoaded  atomic.Int64
 )
 
 func init() {
@@ -133,22 +101,22 @@ func main() {
 	}
 	if exp.MatchString(string(decodedHeader)) {
 		matches := exp.FindAllStringSubmatch(string(decodedHeader), -1)
-		maxDataParts, _ = strconv.Atoi(matches[0][1])
-		Log.Debug("Total data parts: %v", maxDataParts)
-		maxPar2Parts, _ = strconv.Atoi(matches[0][2])
-		Log.Debug("Total par2 parts: %v", maxPar2Parts)
-		loadArticles(maxDataParts, "data")
+		totalParts["data"], _ = strconv.Atoi(matches[0][1])
+		Log.Debug("Total data parts: %v", totalParts["data"])
+		totalParts["par2"], _ = strconv.Atoi(matches[0][2])
+		Log.Debug("Total par2 parts: %v", totalParts["par2"])
+		loadArticles("data")
 		Log.Info("Download of data files completed")
 	} else {
 		Log.Error("Provided header is invalid")
 		exit(1)
 	}
 
-	if len(missingParts.parts) > 0 {
-		Log.Info("Missing parts: %v", len(missingParts.parts))
+	if len(missingArticles.parts) > 0 {
+		Log.Info("Missing parts: %v", len(missingArticles.parts))
 		Log.Info("Downloaded files are incomplete and need to be repaired")
-		if maxPar2Parts > 0 {
-			loadArticles(maxPar2Parts, "par2")
+		if totalParts["par2"] > 0 {
+			loadArticles("par2")
 			Log.Info("Download of par2 files completed")
 			if conf.Repair {
 				if err = par2(); err != nil {
@@ -188,24 +156,21 @@ func checkForFatalErr(err error) {
 	}
 }
 
-func loadArticles(maxParts int, partType string) {
+func loadArticles(partType string) {
 
 	Log.Info("Loading %v files", partType)
 
 	// progress bar
 	if conf.Verbose > 0 {
-		downloadProgressBar = progressbar.NewOptions(int(maxParts),
-			progressbar.OptionSetDescription(fmt.Sprintf("INFO:    Loading %s files ", partType)),
+		// initially set the target to max int64, we will estimate the "correct" target later
+		downloadProgressBar = progressbar.NewOptions64(math.MaxInt64,
+			progressbar.OptionSetDescription("INFO:    Downloading        "),
+			progressbar.OptionShowBytes(true),
 			progressbar.OptionSetRenderBlankState(true),
-			progressbar.OptionThrottle(time.Millisecond*100),
 			progressbar.OptionShowElapsedTimeOnFinish(),
 			progressbar.OptionOnCompletion(newline),
 		)
 	}
-
-	// make channels
-	messagesChan = make(chan Messages, conf.Connections*2)
-	articlesChan = make(chan nntp.Article, conf.Connections*20)
 
 	// empty files channel
 	fileChannels.channels = nil
@@ -215,21 +180,24 @@ func loadArticles(maxParts int, partType string) {
 	fileChannels.channels = make(map[string]chan *yenc.Part)
 	fileWriters.writers = make(map[string]bool)
 
+	// empty counters
+	totalBytesLoaded.Store(0)
+	totalPartsLoaded.Store(0)
+
 	// launche the go-routines
 	for i := 1; i <= conf.Connections; i++ {
 		readArticlesWG.Add(1)
 		go readArticles(&readArticlesWG, i, 0)
 	}
 
-	for j := 1; j <= maxParts; j++ {
+	for j := 1; j <= totalParts[partType]; j++ {
 		md5Hash := GetSHA256Hash(fmt.Sprintf("%v:%v:%v", conf.Header, partType, j))
 		messageId := md5Hash[:40] + "@" + md5Hash[40:61] + "." + md5Hash[61:]
-		messagesChan <- Messages{messageId, 0}
+		articlesChan <- Article{messageId, 0, partType}
 	}
 
-	close(messagesChan)
-	readArticlesWG.Wait()
 	close(articlesChan)
+	readArticlesWG.Wait()
 	for _, channel := range fileChannels.channels {
 		close(channel)
 	}
